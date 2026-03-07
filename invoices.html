@@ -834,71 +834,6 @@
       .form-actions-bar { flex-direction: column-reverse; align-items: stretch; }
     }
 
-    /* ── Login overlay ─────────────────────────── */
-    #loginOverlay {
-      position: fixed;
-      inset: 0;
-      background: var(--bg);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-
-    .login-card {
-      background: var(--surface);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-doc);
-      padding: 36px 40px;
-      width: 100%;
-      max-width: 380px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .login-logo {
-      font-size: 18px;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      color: var(--accent);
-    }
-
-    .login-logo span { color: var(--text-muted); font-weight: 400; }
-
-    .login-title {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--text);
-      line-height: 1.2;
-    }
-
-    .login-sub {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: -6px;
-    }
-
-    .login-input {
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 10px 12px;
-      font-family: inherit;
-      font-size: 14px;
-      color: var(--text);
-      outline: none;
-      transition: border-color 0.15s;
-      width: 100%;
-    }
-
-    .login-input:focus { border-color: var(--accent); }
-
-    .login-msg {
-      font-size: 12px;
-      color: var(--text-muted);
-      min-height: 16px;
-    }
-
     /* ── Print ─────────────────────────────────── */
     @media print {
       body { background: #fff; }
@@ -952,25 +887,12 @@
 </head>
 <body>
 
-<!-- Login overlay -->
-<div id="loginOverlay">
-  <div class="login-card">
-    <div class="login-logo">Invoice<span>Tool</span></div>
-    <h2 class="login-title">Sign in to your account</h2>
-    <p class="login-sub">Enter your email to receive a magic link</p>
-    <input type="email" id="loginEmail" class="login-input" placeholder="you@example.com" autocomplete="email">
-    <button id="loginBtn" class="btn btn-primary" style="justify-content:center;">Send Magic Link</button>
-    <p id="loginMsg" class="login-msg"></p>
-  </div>
-</div>
-
 <!-- App bar -->
 <header class="app-bar">
   <div class="app-bar-left">
     <div class="app-logo">Invoice<span>Tool</span></div>
   </div>
   <div class="app-bar-right">
-    <button class="btn btn-ghost" id="logoutBtn" style="display:none;">Sign out</button>
     <button class="btn btn-primary" id="newInvoiceBtn">+ New Invoice</button>
   </div>
 </header>
@@ -1216,11 +1138,6 @@
   const deleteBtn       = document.getElementById('deleteBtn');
   const messageBar      = document.getElementById('messageBar');
   const docStatusBadge  = document.getElementById('docStatusBadge');
-  const logoutBtn       = document.getElementById('logoutBtn');
-  const loginOverlay    = document.getElementById('loginOverlay');
-  const loginEmail      = document.getElementById('loginEmail');
-  const loginBtn        = document.getElementById('loginBtn');
-  const loginMsg        = document.getElementById('loginMsg');
 
   // Header band inputs
   const issuerNameInput    = document.getElementById('issuerName');
@@ -1264,7 +1181,6 @@
   let draft = null;
   let nextSeq = 1;
   let messageTimer = null;
-  let currentUserId = null;
 
   /* ── Helpers ──────────────────────────────────── */
   function todayISO() {
@@ -1307,7 +1223,6 @@
   /* ── Supabase data mappers ────────────────────── */
   function toSupabase(inv) {
     return {
-      user_id:          currentUserId,
       number:           inv.number           || null,
       date:             inv.date             || null,
       due_date:         inv.dueDate          || null,
@@ -1769,29 +1684,6 @@
     if (savedIssuer.name) applyIssuerToUI(savedIssuer);
   }
 
-  /* ── Auth ─────────────────────────────────────── */
-  async function handleLogin() {
-    const email = loginEmail.value.trim();
-    if (!email || !email.includes('@')) {
-      loginMsg.textContent = 'Please enter a valid email address.';
-      loginMsg.style.color = 'var(--danger)';
-      return;
-    }
-    loginBtn.disabled = true;
-    loginBtn.textContent = 'Sending…';
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-    if (error) {
-      loginMsg.textContent = error.message;
-      loginMsg.style.color = 'var(--danger)';
-      loginBtn.disabled = false;
-      loginBtn.textContent = 'Send Magic Link';
-    } else {
-      loginMsg.textContent = 'Check your email for the magic link.';
-      loginMsg.style.color = 'var(--success)';
-      loginBtn.textContent = 'Link sent ✓';
-    }
-  }
-
   /* ── Wire form field handlers ─────────────────── */
   function wireHandlers() {
     // Status → badge
@@ -1888,32 +1780,12 @@
       window.print();
     });
 
-    logoutBtn.addEventListener('click', () => sb.auth.signOut());
-
-    loginBtn.addEventListener('click', handleLogin);
-    loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
   }
 
   /* ── Init ─────────────────────────────────────── */
-  function init() {
+  async function init() {
     wireHandlers();
-
-    sb.auth.onAuthStateChange(async (event, session) => {
-      if (session && session.user) {
-        currentUserId = session.user.id;
-        loginOverlay.style.display = 'none';
-        logoutBtn.style.display = 'inline-flex';
-        await loadInvoices();
-      } else {
-        currentUserId = null;
-        invoices = [];
-        selectedId = null;
-        draft = null;
-        renderSidebar();
-        loginOverlay.style.display = 'flex';
-        logoutBtn.style.display = 'none';
-      }
-    });
+    await loadInvoices();
   }
 
   init();
