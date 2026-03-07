@@ -836,12 +836,14 @@
 
     /* ── Print ─────────────────────────────────── */
     @media print {
+      @page { margin: 12mm; }
+
       * {
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
 
-      body { background: #fff; }
+      body { background: #fff; font-size: 11px; }
 
       .app-bar,
       .sidebar,
@@ -855,16 +857,39 @@
 
       .workspace { display: block; }
 
-      .doc-panel {
-        padding: 0;
-        overflow: visible;
+      .doc-panel { padding: 0; overflow: visible; }
+
+      .invoice-doc { box-shadow: none; border-radius: 0; max-width: none; }
+
+      /* Override responsive breakpoint — restore two-column layouts */
+      .doc-header-band {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 20px !important;
+        padding: 14px 20px 12px !important;
       }
 
-      .invoice-doc {
-        box-shadow: none;
-        border-radius: 0;
-        max-width: none;
+      .doc-header-right { align-items: flex-end !important; }
+
+      .billto-section {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 24px !important;
+        margin-bottom: 14px !important;
+        padding-bottom: 14px !important;
       }
+
+      .doc-footer {
+        display: grid !important;
+        grid-template-columns: 1fr auto !important;
+        gap: 32px !important;
+        padding-top: 14px !important;
+      }
+
+      /* Reduce padding to fit one page */
+      .doc-body { padding: 16px 20px !important; }
+      .footer-textarea { min-height: 28px !important; }
+      .totals-block { min-width: 200px !important; }
 
       .doc-input,
       .doc-meta-input,
