@@ -1,0 +1,137 @@
+---
+description: Clean Architecture for API endpoints
+globs:
+  - "app/api/**/*"
+  - "pages/api/**/*"
+alwaysApply: true
+---
+
+# Clean Architecture for API Endpoints
+
+## Layered Architecture Pattern
+
+All API endpoints **MUST** follow clean architecture with strict separation of concerns:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│   CONTROLLER LAYER (Route Handler)                          │
+│   - Authenticate user                                        │
+│   - Validate input (Zod)                                     │
+│   - Map input to internal objects                            │
+│   - Call service (ONE method call)                           │
+│   - Map service response to HTTP response                    │
+├─────────────────────────────────────────────────────────────┤
+│   SERVICE LAYER (Business Logic)                             │
+│   - Validate business rules                                  │
+│   - Orchestrate operations                                   │
+│   - Call repositories                                        │
+│   - Transform data                                           │
+│   - Log business events                                      │
+├─────────────────────────────────────────────────────────────┤
+│   REPOSITORY LAYER (Data Access)                             │
+│   - Database queries                                         │
+│   - Map snake_case ↔ camelCase                               │
+│   - Handle DB errors                                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Golden Rule: Controllers → Services → Repositories (NEVER skip layers)**
+
+---
+
+## Controller Layer
+
+Controllers **MUST** do exactly these 5 things, in order:
+
+1. Check authentication (`verifyAuthApp`)
+2. Validate input (Zod schemas)
+3. Map input to internal objects
+4. Call service (ONE service method)
+5. Map service response to HTTP response
+
+### Strictly Forbidden in Controllers:
+- ❌ Business logic
+- ❌ Direct repository calls
+- ❌ Helper functions with business logic
+- ❌ Permission checks
+- ❌ Entity validation
+- ❌ Data transformation
+- ❌ External API calls
+- ❌ Multiple service calls for one operation (create a service orchestration method instead)
+
+---
+
+## Service Layer
+
+Services contain **ALL business logic** and orchestrate operations:
+
+- ✅ Validate business rules (permissions, entity relationships, invariants)
+- ✅ Orchestrate multiple repository calls
+- ✅ Transform data between layers
+- ✅ Log business events (Pino)
+- ✅ Handle errors with proper context
+- ✅ Call external APIs
+
+### Strictly Forbidden in Services:
+- ❌ HTTP concerns (status codes, headers, NextResponse)
+- ❌ Zod validation (controller's job)
+- ❌ Direct database queries (use repositories)
+
+### Service Method Checklist:
+- [ ] Clear name, ending in `WithAuth` if authorization required
+- [ ] Accepts primitive types or simple DTOs (not HTTP request objects)
+- [ ] Returns a structured result object (not HTTP responses)
+- [ ] Contains ALL business logic
+- [ ] Validates all business rules and permissions
+- [ ] Calls repositories for data access
+- [ ] Logs important business events
+- [ ] Returns meaningful error messages
+
+---
+
+## Repository Layer
+
+Repositories handle **ONLY data access** and mapping:
+
+- ✅ Database query abstraction (Supabase client)
+- ✅ Data mapping (snake_case ↔ camelCase)
+- ✅ Handle database errors with descriptive messages
+
+### Strictly Forbidden in Repositories:
+- ❌ Business logic
+- ❌ Permission checks
+- ❌ HTTP concerns
+
+### Naming Convention:
+- `get{Entity}ById(id: string): Promise<Entity | null>`
+- `get{Entity}By{Criteria}(criteria: string): Promise<Entity[]>`
+- `create{Entity}(data: CreateEntityDTO): Promise<Entity>`
+- `update{Entity}(id: string, data: UpdateEntityDTO): Promise<Entity>`
+- `delete{Entity}(id: string): Promise<void>`
+
+### Repository Method Checklist:
+- [ ] Returns domain models (not raw DB rows)
+- [ ] Returns `null` for not found (no throws)
+- [ ] Maps snake_case ↔ camelCase
+- [ ] No business logic, no permission checks, no HTTP concerns
+- [ ] Only called by services
+
+---
+
+## Export Cleanliness
+
+- **Repositories**: only export methods used by services
+- **Services**: only export methods used by controllers
+- Periodically audit and remove unused exports
+
+---
+
+## Common Anti-Patterns to Avoid
+
+- ❌ **Fat Controllers**: business logic in controller → move to service
+- ❌ **Controller → Repository**: skipping service layer
+- ❌ **Anemic Services**: service just passes data through with no logic
+- ❌ **Repository with business logic**: move rules to service
+- ❌ **Multiple service calls in controller**: create an orchestration method in service
+- ❌ **Service returning HTTP status codes**: services must be framework-agnostic
+- ❌ **Helper functions with business logic in controller**: move to service
