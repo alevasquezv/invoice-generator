@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Invoices</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
   <style>
     :root {
       --bg: #f0f2f5;
@@ -833,6 +834,71 @@
       .form-actions-bar { flex-direction: column-reverse; align-items: stretch; }
     }
 
+    /* ── Login overlay ─────────────────────────── */
+    #loginOverlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .login-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-doc);
+      padding: 36px 40px;
+      width: 100%;
+      max-width: 380px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .login-logo {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--accent);
+    }
+
+    .login-logo span { color: var(--text-muted); font-weight: 400; }
+
+    .login-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .login-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: -6px;
+    }
+
+    .login-input {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+
+    .login-input:focus { border-color: var(--accent); }
+
+    .login-msg {
+      font-size: 12px;
+      color: var(--text-muted);
+      min-height: 16px;
+    }
+
     /* ── Print ─────────────────────────────────── */
     @media print {
       body { background: #fff; }
@@ -886,12 +952,25 @@
 </head>
 <body>
 
+<!-- Login overlay -->
+<div id="loginOverlay">
+  <div class="login-card">
+    <div class="login-logo">Invoice<span>Tool</span></div>
+    <h2 class="login-title">Sign in to your account</h2>
+    <p class="login-sub">Enter your email to receive a magic link</p>
+    <input type="email" id="loginEmail" class="login-input" placeholder="you@example.com" autocomplete="email">
+    <button id="loginBtn" class="btn btn-primary" style="justify-content:center;">Send Magic Link</button>
+    <p id="loginMsg" class="login-msg"></p>
+  </div>
+</div>
+
 <!-- App bar -->
 <header class="app-bar">
   <div class="app-bar-left">
     <div class="app-logo">Invoice<span>Tool</span></div>
   </div>
   <div class="app-bar-right">
+    <button class="btn btn-ghost" id="logoutBtn" style="display:none;">Sign out</button>
     <button class="btn btn-primary" id="newInvoiceBtn">+ New Invoice</button>
   </div>
 </header>
@@ -1093,6 +1172,12 @@
 (function () {
   'use strict';
 
+  /* ── Supabase config ──────────────────────────── */
+  const SUPABASE_URL = 'https://mnsjboajizpoxvuhglig.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_EqVLkg9YzUNTQfG86yZCyA_DvgYlIK-';
+  const { createClient } = window.supabase;
+  const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
   /* ── Currency config ──────────────────────────── */
   const CURRENCIES = {
     USD: { symbol: '$',     locale: 'en-US' },
@@ -1131,6 +1216,11 @@
   const deleteBtn       = document.getElementById('deleteBtn');
   const messageBar      = document.getElementById('messageBar');
   const docStatusBadge  = document.getElementById('docStatusBadge');
+  const logoutBtn       = document.getElementById('logoutBtn');
+  const loginOverlay    = document.getElementById('loginOverlay');
+  const loginEmail      = document.getElementById('loginEmail');
+  const loginBtn        = document.getElementById('loginBtn');
+  const loginMsg        = document.getElementById('loginMsg');
 
   // Header band inputs
   const issuerNameInput    = document.getElementById('issuerName');
@@ -1174,6 +1264,7 @@
   let draft = null;
   let nextSeq = 1;
   let messageTimer = null;
+  let currentUserId = null;
 
   /* ── Helpers ──────────────────────────────────── */
   function todayISO() {
@@ -1202,6 +1293,61 @@
   }
 
   function clone(obj) { return JSON.parse(JSON.stringify(obj)); }
+
+  function initNextSeq() {
+    const year = new Date().getFullYear();
+    let max = 0;
+    for (const inv of invoices) {
+      const match = inv.number && inv.number.match(new RegExp('INV-' + year + '-(\\d+)'));
+      if (match) max = Math.max(max, parseInt(match[1], 10));
+    }
+    nextSeq = max + 1;
+  }
+
+  /* ── Supabase data mappers ────────────────────── */
+  function toSupabase(inv) {
+    return {
+      user_id:          currentUserId,
+      number:           inv.number           || null,
+      date:             inv.date             || null,
+      due_date:         inv.dueDate          || null,
+      payment_terms:    inv.paymentTerms     || null,
+      po_number:        inv.poNumber         || null,
+      status:           inv.status           || 'draft',
+      currency:         inv.currency         || 'USD',
+      issuer:           inv.issuer           || {},
+      client:           inv.client           || {},
+      ship_to:          inv.shipTo           || null,
+      items:            inv.items            || [],
+      notes:            inv.notes            || null,
+      terms:            inv.terms            || null,
+      discount_percent: inv.discountPercent  || 0,
+      tax_rate:         inv.taxRate          || 0,
+      amount_paid:      inv.amountPaid       || 0,
+    };
+  }
+
+  function fromSupabase(row) {
+    return {
+      id:              row.id,
+      number:          row.number           || '',
+      date:            row.date             || '',
+      dueDate:         row.due_date         || '',
+      paymentTerms:    row.payment_terms    || '',
+      poNumber:        row.po_number        || '',
+      status:          row.status           || 'draft',
+      currency:        row.currency         || 'USD',
+      issuer:          row.issuer           || { name: '', address: '', taxId: '' },
+      client:          row.client           || { name: '', address: '', taxId: '' },
+      shipTo:          row.ship_to          || '',
+      items:           row.items            || [{ description: '', quantity: 1, unitPrice: 0 }],
+      notes:           row.notes            || '',
+      terms:           row.terms            || '',
+      discountPercent: parseFloat(row.discount_percent) || 0,
+      taxRate:         parseFloat(row.tax_rate)         || 0,
+      amountPaid:      parseFloat(row.amount_paid)      || 0,
+    };
+  }
 
   /* ── Message toast ────────────────────────────── */
   function showMessage(text, type) {
@@ -1544,7 +1690,7 @@
   }
 
   /* ── Save ─────────────────────────────────────── */
-  function saveInvoice() {
+  async function saveInvoice() {
     collectFormToDraft();
     if (!draft.number) {
       draft.number = generateNumber();
@@ -1553,15 +1699,23 @@
     const err = validate(draft);
     if (err) { showMessage(err, 'error'); return; }
 
+    saveBtn.disabled = true;
+    const payload = toSupabase(draft);
+
     if (draft.id) {
+      const { error } = await sb.from('invoices').update(payload).eq('id', draft.id);
+      if (error) { showMessage('Error: ' + error.message, 'error'); saveBtn.disabled = false; return; }
       const idx = invoices.findIndex(i => String(i.id) === String(draft.id));
       if (idx !== -1) invoices[idx] = clone(draft);
     } else {
-      draft.id = Date.now().toString(36) + Math.random().toString(36).slice(2);
-      selectedId = draft.id;
+      const { data, error } = await sb.from('invoices').insert(payload).select().single();
+      if (error) { showMessage('Error: ' + error.message, 'error'); saveBtn.disabled = false; return; }
+      draft.id = data.id;
+      selectedId = data.id;
       invoices.push(clone(draft));
     }
 
+    saveBtn.disabled = false;
     saveIssuer();
     renderSidebar();
     bindDraftToForm();
@@ -1569,8 +1723,11 @@
   }
 
   /* ── Delete ───────────────────────────────────── */
-  function deleteInvoice() {
+  async function deleteInvoice() {
     if (!selectedId) return;
+    deleteBtn.disabled = true;
+    const { error } = await sb.from('invoices').delete().eq('id', selectedId);
+    if (error) { showMessage('Error: ' + error.message, 'error'); deleteBtn.disabled = false; return; }
     invoices = invoices.filter(i => String(i.id) !== String(selectedId));
     selectedId = null;
     renderSidebar();
@@ -1581,6 +1738,7 @@
       bindDraftToForm();
     }
     showMessage('Invoice deleted.', 'success');
+    deleteBtn.disabled = false;
   }
 
   /* ── Cancel ───────────────────────────────────── */
@@ -1590,6 +1748,48 @@
       if (orig) { draft = clone(orig); bindDraftToForm(); return; }
     }
     startNew();
+  }
+
+  /* ── Load invoices from Supabase ─────────────── */
+  async function loadInvoices() {
+    const { data, error } = await sb.from('invoices').select('*').order('created_at', { ascending: false });
+    if (error) { showMessage('Error loading invoices: ' + error.message, 'error'); return; }
+    invoices = (data || []).map(fromSupabase);
+    initNextSeq();
+    renderSidebar();
+    if (invoices.length) {
+      selectedId = invoices[0].id;
+      draft = clone(invoices[0]);
+      bindDraftToForm();
+    } else {
+      draft = emptyInvoice();
+      bindDraftToForm();
+    }
+    const savedIssuer = loadIssuer();
+    if (savedIssuer.name) applyIssuerToUI(savedIssuer);
+  }
+
+  /* ── Auth ─────────────────────────────────────── */
+  async function handleLogin() {
+    const email = loginEmail.value.trim();
+    if (!email || !email.includes('@')) {
+      loginMsg.textContent = 'Please enter a valid email address.';
+      loginMsg.style.color = 'var(--danger)';
+      return;
+    }
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Sending…';
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) {
+      loginMsg.textContent = error.message;
+      loginMsg.style.color = 'var(--danger)';
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Send Magic Link';
+    } else {
+      loginMsg.textContent = 'Check your email for the magic link.';
+      loginMsg.style.color = 'var(--success)';
+      loginBtn.textContent = 'Link sent ✓';
+    }
   }
 
   /* ── Wire form field handlers ─────────────────── */
@@ -1687,93 +1887,33 @@
       if (!draft) { showMessage('No invoice to print.', 'error'); return; }
       window.print();
     });
-  }
 
-  /* ── Mock data ────────────────────────────────── */
-  function initMock() {
-    const today = todayISO();
-    invoices = [
-      {
-        id: 'mock-1',
-        number: 'INV-' + new Date().getFullYear() + '-0001',
-        date: today,
-        dueDate: addDays(today, 30),
-        paymentTerms: 'Net 30',
-        poNumber: '',
-        status: 'sent',
-        currency: 'USD',
-        issuer: { name: '', address: '', taxId: '' },
-        client: { name: 'Cuddles App, Inc.', address: '360 NE 86TH St, Miami, FL 33138', taxId: 'EIN 84-4030475' },
-        shipTo: '',
-        items: [
-          { description: 'Product Growth Consulting (Jan 2026)', quantity: 1, unitPrice: 1600 },
-          { description: 'Analytics Dashboard Setup',            quantity: 4, unitPrice: 180 }
-        ],
-        notes: 'Payment due within 30 days. Thank you for your business.',
-        terms: 'Late payments subject to 1.5% monthly interest.',
-        discountPercent: 0,
-        taxRate: 0,
-        amountPaid: 0
-      },
-      {
-        id: 'mock-2',
-        number: 'INV-' + new Date().getFullYear() + '-0002',
-        date: today,
-        dueDate: addDays(today, 15),
-        paymentTerms: 'Net 15',
-        poNumber: 'PO-2026-55',
-        status: 'draft',
-        currency: 'EUR',
-        issuer: { name: '', address: '', taxId: '' },
-        client: { name: 'Acme Studio S.L.', address: 'Calle Falsa 123, Madrid, Spain', taxId: 'B12345678' },
-        shipTo: '',
-        items: [
-          { description: 'Website Redesign — Phase 1', quantity: 1,  unitPrice: 3500 },
-          { description: 'Responsive Implementation',  quantity: 20, unitPrice: 75 }
-        ],
-        notes: 'Pago a 15 días. Gracias por confiar en nosotros.',
-        terms: '',
-        discountPercent: 5,
-        taxRate: 21,
-        amountPaid: 0
-      },
-      {
-        id: 'mock-3',
-        number: 'INV-' + new Date().getFullYear() + '-0003',
-        date: addDays(today, -40),
-        dueDate: addDays(today, -10),
-        paymentTerms: 'Net 30',
-        poNumber: '',
-        status: 'paid',
-        currency: 'GBP',
-        issuer: { name: '', address: '', taxId: '' },
-        client: { name: 'Heathrow Media Ltd', address: '12 Baker Street, London, UK', taxId: 'VAT GB123456789' },
-        shipTo: '',
-        items: [
-          { description: 'Monthly Retainer — Design', quantity: 1, unitPrice: 2000 },
-        ],
-        notes: '',
-        terms: '',
-        discountPercent: 0,
-        taxRate: 20,
-        amountPaid: 2400
-      }
-    ];
-    nextSeq = 4;
+    logoutBtn.addEventListener('click', () => sb.auth.signOut());
+
+    loginBtn.addEventListener('click', handleLogin);
+    loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
   }
 
   /* ── Init ─────────────────────────────────────── */
   function init() {
-    initMock();
     wireHandlers();
-    renderSidebar();
-    // Select first invoice
-    selectedId = invoices[0].id;
-    draft = clone(invoices[0]);
-    bindDraftToForm();
-    // Apply saved issuer if any
-    const savedIssuer = loadIssuer();
-    if (savedIssuer.name) applyIssuerToUI(savedIssuer);
+
+    sb.auth.onAuthStateChange(async (event, session) => {
+      if (session && session.user) {
+        currentUserId = session.user.id;
+        loginOverlay.style.display = 'none';
+        logoutBtn.style.display = 'inline-flex';
+        await loadInvoices();
+      } else {
+        currentUserId = null;
+        invoices = [];
+        selectedId = null;
+        draft = null;
+        renderSidebar();
+        loginOverlay.style.display = 'flex';
+        logoutBtn.style.display = 'none';
+      }
+    });
   }
 
   init();
