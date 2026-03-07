@@ -836,6 +836,11 @@
 
     /* ── Print ─────────────────────────────────── */
     @media print {
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+
       body { background: #fff; }
 
       .app-bar,
@@ -843,7 +848,8 @@
       .doc-actions,
       .form-actions-bar,
       .add-line-row,
-      .btn-icon-sm {
+      .btn-icon-sm,
+      .logo-block {
         display: none !important;
       }
 
@@ -858,11 +864,6 @@
         box-shadow: none;
         border-radius: 0;
         max-width: none;
-      }
-
-      .doc-header-band {
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
       }
 
       .doc-input,
