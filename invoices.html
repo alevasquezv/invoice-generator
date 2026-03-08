@@ -834,6 +834,82 @@
       .form-actions-bar { flex-direction: column-reverse; align-items: stretch; }
     }
 
+    /* ── Auth overlay ─────────────────────────── */
+    #authOverlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+
+    .auth-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-doc);
+      padding: 36px 40px;
+      width: 100%;
+      max-width: 380px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .auth-logo {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--accent);
+    }
+
+    .auth-logo span { color: var(--text-muted); font-weight: 400; }
+
+    .auth-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.2;
+    }
+
+    .auth-input {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-family: inherit;
+      font-size: 14px;
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+
+    .auth-input:focus { border-color: var(--accent); }
+
+    .auth-msg {
+      font-size: 12px;
+      min-height: 16px;
+    }
+
+    .auth-msg.error { color: var(--danger); }
+    .auth-msg.success { color: var(--success); }
+
+    .auth-toggle {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    .auth-toggle a {
+      color: var(--accent);
+      cursor: pointer;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .auth-toggle a:hover { text-decoration: underline; }
+
     /* ── Print ─────────────────────────────────── */
     @media print {
       @page { margin: 12mm; }
@@ -913,12 +989,26 @@
 </head>
 <body>
 
+<!-- Auth overlay -->
+<div id="authOverlay">
+  <div class="auth-card">
+    <div class="auth-logo">Invoice<span>Tool</span></div>
+    <h2 class="auth-title" id="authTitle">Sign in</h2>
+    <input type="email" id="authEmail" class="auth-input" placeholder="Email" autocomplete="email">
+    <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password">
+    <button id="authSubmitBtn" class="btn btn-primary" style="justify-content:center;">Sign in</button>
+    <p id="authMsg" class="auth-msg"></p>
+    <p class="auth-toggle" id="authToggle">Don't have an account? <a id="authToggleLink">Sign up</a></p>
+  </div>
+</div>
+
 <!-- App bar -->
 <header class="app-bar">
   <div class="app-bar-left">
     <div class="app-logo">Invoice<span>Tool</span></div>
   </div>
   <div class="app-bar-right">
+    <button class="btn btn-ghost" id="logoutBtn" style="display:none;">Sign out</button>
     <button class="btn btn-primary" id="newInvoiceBtn">+ New Invoice</button>
   </div>
 </header>
@@ -1164,6 +1254,15 @@
   const deleteBtn       = document.getElementById('deleteBtn');
   const messageBar      = document.getElementById('messageBar');
   const docStatusBadge  = document.getElementById('docStatusBadge');
+  const authOverlay     = document.getElementById('authOverlay');
+  const authTitle       = document.getElementById('authTitle');
+  const authEmail       = document.getElementById('authEmail');
+  const authPassword    = document.getElementById('authPassword');
+  const authSubmitBtn   = document.getElementById('authSubmitBtn');
+  const authMsg         = document.getElementById('authMsg');
+  const authToggle      = document.getElementById('authToggle');
+  const authToggleLink  = document.getElementById('authToggleLink');
+  const logoutBtn       = document.getElementById('logoutBtn');
 
   // Header band inputs
   const issuerNameInput    = document.getElementById('issuerName');
@@ -1207,6 +1306,8 @@
   let draft = null;
   let nextSeq = 1;
   let messageTimer = null;
+  let currentUserId = null;
+  let isSignUpMode = false;
 
   /* ── Helpers ──────────────────────────────────── */
   function todayISO() {
@@ -1249,6 +1350,7 @@
   /* ── Supabase data mappers ────────────────────── */
   function toSupabase(inv) {
     return {
+      user_id:          currentUserId,
       number:           inv.number           || null,
       date:             inv.date             || null,
       due_date:         inv.dueDate          || null,
@@ -1710,6 +1812,52 @@
     if (savedIssuer.name) applyIssuerToUI(savedIssuer);
   }
 
+  /* ── Auth ─────────────────────────────────────── */
+  function setAuthMode(signUp) {
+    isSignUpMode = signUp;
+    authTitle.textContent = signUp ? 'Create account' : 'Sign in';
+    authSubmitBtn.textContent = signUp ? 'Sign up' : 'Sign in';
+    authToggle.innerHTML = signUp
+      ? 'Already have an account? <a id="authToggleLink">Sign in</a>'
+      : 'Don\'t have an account? <a id="authToggleLink">Sign up</a>';
+    document.getElementById('authToggleLink').addEventListener('click', () => setAuthMode(!isSignUpMode));
+    authMsg.textContent = '';
+    authMsg.className = 'auth-msg';
+  }
+
+  function showAuthError(msg) {
+    authMsg.textContent = msg;
+    authMsg.className = 'auth-msg error';
+  }
+
+  async function handleAuthSubmit() {
+    const email = authEmail.value.trim();
+    const password = authPassword.value;
+    if (!email || !email.includes('@')) { showAuthError('Enter a valid email.'); return; }
+    if (password.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
+
+    authSubmitBtn.disabled = true;
+    authSubmitBtn.textContent = isSignUpMode ? 'Creating…' : 'Signing in…';
+
+    const { error } = isSignUpMode
+      ? await sb.auth.signUp({ email, password })
+      : await sb.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      showAuthError(error.message);
+      authSubmitBtn.disabled = false;
+      authSubmitBtn.textContent = isSignUpMode ? 'Sign up' : 'Sign in';
+      return;
+    }
+
+    if (isSignUpMode) {
+      authMsg.textContent = 'Account created. Check your email to confirm, then sign in.';
+      authMsg.className = 'auth-msg success';
+      authSubmitBtn.disabled = false;
+      setAuthMode(false);
+    }
+  }
+
   /* ── Wire form field handlers ─────────────────── */
   function wireHandlers() {
     // Status → badge
@@ -1806,12 +1954,33 @@
       window.print();
     });
 
+    logoutBtn.addEventListener('click', () => sb.auth.signOut());
+    authSubmitBtn.addEventListener('click', handleAuthSubmit);
+    authPassword.addEventListener('keydown', e => { if (e.key === 'Enter') handleAuthSubmit(); });
+    authToggleLink.addEventListener('click', () => setAuthMode(!isSignUpMode));
   }
 
   /* ── Init ─────────────────────────────────────── */
-  async function init() {
+  function init() {
     wireHandlers();
-    await loadInvoices();
+
+    sb.auth.onAuthStateChange(async (_event, session) => {
+      if (session && session.user) {
+        currentUserId = session.user.id;
+        authOverlay.style.display = 'none';
+        logoutBtn.style.display = 'inline-flex';
+        await loadInvoices();
+      } else {
+        currentUserId = null;
+        invoices = [];
+        selectedId = null;
+        draft = null;
+        renderSidebar();
+        authOverlay.style.display = 'flex';
+        logoutBtn.style.display = 'none';
+        setAuthMode(false);
+      }
+    });
   }
 
   init();
